@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection.Metadata;
@@ -98,22 +99,81 @@ namespace TreeFormer
 				return long.Sign(Math.Abs(basedist - (long)x.Value[0]) - Math.Abs(basedist - (long)y.Value[0]));
 			}
 		}
+		private sealed class Microlist : IEnumerable<State>{
+			private readonly Microlist? prev;
+			private readonly State state;
+
+			public Microlist(Microlist? prev, State state)
+			{
+				this.prev = prev;
+				this.state = state;
+			}
+			private sealed class MicrolistEnumerator : IEnumerator<State>
+			{
+				private readonly Microlist? start;
+				private Microlist? current;
+
+				public MicrolistEnumerator(Microlist? start)
+				{
+					this.start = start;
+					current = start;
+				}
+
+				public State Current => current.state;
+
+				object IEnumerator.Current => current.state;
+
+				public void Dispose()
+				{
+					
+				}
+
+				public bool MoveNext()
+				{
+					Microlist? temp = current;
+					if(temp is null){
+						return false;
+					}
+					temp = temp.prev;
+					current = temp;
+					return temp is { };
+				}
+
+				public void Reset()
+				{
+					current = start;
+				}
+			}
+
+			public IEnumerator<State> GetEnumerator()
+			{
+				return new MicrolistEnumerator(new Microlist(this, default));
+			}
+
+			IEnumerator IEnumerable.GetEnumerator()
+			{
+				return GetEnumerator();
+			}
+		}
 
 		public static Node? FindOptimalNode(IEnumerable<State> states, int static_lookback_limit, int relative_lookback_limit, ulong minimum_split_treshold, int optimal_search_max_iterations, ILogDrain logDrain)
 		{
-			foreach(State state in states){
-				if(minimum_split_treshold == 0){
-					break;
-				}
-				--minimum_split_treshold;
+			Microlist? microlist = null;
+			ulong ctr = 0;
+			foreach (State state in states)
+			{
+				microlist = new Microlist(microlist, state);
+				++ctr;
 			}
-			if(minimum_split_treshold > 0){
+			if(ctr < minimum_split_treshold || microlist is null){
 				return null;
 			}
+			states = microlist;
+
+
 			Dictionary<ushort, ulong[]> keyValuePairs1 = new Dictionary<ushort, ulong[]>();
 
 			Dictionary<Node, ulong[]> keyValuePairs = new();
-			ulong ctr = 0;
 
 			foreach(State state in states){
 				IncrInternal(keyValuePairs1, state.trueClass);
@@ -121,7 +181,6 @@ namespace TreeFormer
 				{
 					IncrInternal(keyValuePairs, node);
 				}
-				++ctr;
 			}
 			double dctr = ctr;
 			double entropy = ComputeEntropyInternal(keyValuePairs1.Values, dctr);
@@ -211,7 +270,7 @@ namespace TreeFormer
 			
 			queue.Enqueue(root);
 			while(queue.TryDequeue(out Node node)){
-				Console.WriteLine("Splittable nodes remaining: " + queue.Count);
+				Console.WriteLine("Splittable nodes remaining: " + (queue.Count + 1));
 				(Node,bool)[] nodes = node.TraceBackward(false).ToArray();
 				Array.Reverse(nodes);
 				Node? temp = FindOptimalNode(MultiEval(nodes, train_dataset), static_lookback_limit, relative_lookback_limit, minimum_split_treshold, optimal_search_max_iterations, logDrain);

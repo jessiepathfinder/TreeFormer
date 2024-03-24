@@ -110,7 +110,7 @@ namespace Treeformer.Chatbot
 					Node n = Trainer.Execute(root, ref s, out bool m);
 					TokenProbability[] d = (m ? truedict : falsedict)[n];
 
-					double rng = (RandomNumberGenerator.GetInt32(0, 16777216)/ 16777216.0) * 0.1;
+					double rng = (RandomNumberGenerator.GetInt32(0, 16777216)/ 16777216.0) * 0.05;
 					ushort b2 = 1;
 					for (int i = 0, stop = d.Length; i < stop & rng > 0; ++i ){
 						TokenProbability tokenProbability = d[i];

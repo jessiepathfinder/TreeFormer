@@ -14,7 +14,7 @@ namespace TreeFormer.Train
 		private const int magicTokenClasses = 2;
 		private const int minimumInputTokens = 3;
 		private const int maxContextSize = 2048;
-		private const ulong dataStride = 256;
+		private const ulong dataStride = 32;
 		private static void Main(string[] args)
 		{
 			string datadir = args[0];
@@ -173,7 +173,7 @@ namespace TreeFormer.Train
 			dict1 = null;
 			ushort[][] tokenized = alldata.ToArray();
 
-			Node? root = Trainer.Train(EnumerateStates(tokenized, FastRNG_State.GetRandom()), EnumerateStates(tokenized), 3, 1, 1024, 256, DefaultLogDrain.instance);
+			Node? root = Trainer.Train(EnumerateStates(tokenized, FastRNG_State.GetRandom()), EnumerateStates(tokenized), 3, 1, 1024, 16, DefaultLogDrain.instance);
 			if(root is { }){
 				File.WriteAllText(save, JsonConvert.SerializeObject(root, settings: new JsonSerializerSettings() {MaxDepth=int.MaxValue, NullValueHandling = NullValueHandling.Ignore}));
 			}
@@ -181,15 +181,23 @@ namespace TreeFormer.Train
 		}
 		private static IEnumerable<State> EnumerateStates(ushort[][] data, FastRNG_State fastRNG)
 		{
-			FastRNG_State my = fastRNG;
-			for (int z = (int)((my.v1.AsUInt64()[0]) % dataStride), stop2 = data.Length; z < stop2; ) {
+			int step = 0;
+			for (int z = 0, stop2 = data.Length; z < stop2; ++z) {
 				ushort[] state = data[z];
-				for(int i = state[0], stop = state.Length - 2; i < stop; ++i){
-					yield return new State(((ReadOnlyMemory<ushort>)state).Slice(1, i), state[i + 2], 0);
+				for(int i = state[0], stop = state.Length - 2; true; ){
+					if(step == 0){
+						yield return new State(((ReadOnlyMemory<ushort>)state).Slice(1, i), state[i + 2], 0);
+						step = (int)((fastRNG.v1.AsUInt64()[0] % dataStride) + 1);
+						fastRNG = fastRNG.Step();
+					}
+					
+					i += step;
+					if(i >= stop){
+						step = i - stop;
+						break;
+					}
+					step = 0;
 				}
-				my = my.Step();
-				z += (int)(((my.v1.AsUInt64()[0]) % dataStride) + 1);
-				
 			}
 		}
 		private static IEnumerable<State> EnumerateStates(ushort[][] data)
