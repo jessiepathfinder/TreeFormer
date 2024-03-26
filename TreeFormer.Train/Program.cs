@@ -1,8 +1,10 @@
 ﻿using Newtonsoft.Json;
+using Newtonsoft.Json.Bson;
 using System.Collections.Concurrent;
 using System.IO.Compression;
 using System.Runtime.Intrinsics;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks.Dataflow;
 
 namespace TreeFormer.Train
@@ -14,7 +16,8 @@ namespace TreeFormer.Train
 		private const int magicTokenClasses = 2;
 		private const int minimumInputTokens = 3;
 		private const int maxContextSize = 2048;
-		private const ulong dataStride = 32;
+		private const ulong dataStride = 1024;
+		private const int ensembleSize = 128;
 		private static void Main(string[] args)
 		{
 			string datadir = args[0];
@@ -173,10 +176,45 @@ namespace TreeFormer.Train
 			dict1 = null;
 			ushort[][] tokenized = alldata.ToArray();
 
-			Node? root = Trainer.Train(EnumerateStates(tokenized, FastRNG_State.GetRandom()), EnumerateStates(tokenized), 3, 1, 1024, 16, DefaultLogDrain.instance);
-			if(root is { }){
-				File.WriteAllText(save, JsonConvert.SerializeObject(root, settings: new JsonSerializerSettings() {MaxDepth=int.MaxValue, NullValueHandling = NullValueHandling.Ignore}));
+
+			int cr = 0;
+			using JsonWriter jsonWriter = new JsonTextWriter(new StreamWriter(new FileStream(save, FileMode.Create | FileMode.Append, FileAccess.Write, FileShare.None, 16777216, FileOptions.SequentialScan), Encoding.UTF8, -1, false));
+			jsonWriter.WriteStartArray();
+			for(int z = 0; z < threads; ++z){
+				Thread thread = new Thread(() => {
+					ushort[][] mytkz = tokenized;
+					JsonWriter myw = jsonWriter;
+					JsonSerializer jsonSerializer = new JsonSerializer();
+					jsonSerializer.MaxDepth = int.MaxValue;
+					jsonSerializer.NullValueHandling = NullValueHandling.Ignore;
+					while (true){
+						int i = Interlocked.Increment(ref cr);
+						if(i > ensembleSize){
+							return;
+						}
+						--i;
+
+						ThreadPrefixedLogDrain.threadPrefix = "Tree #" + i + " training thread";
+						Node? node = Trainer.TrainLegacy(EnumerateStates2(mytkz, FastRNG_State.GetRandom()), EnumerateStates(mytkz), 3, 1, 256, 256, 128, 0, 1048576, 65536, 32, ThreadPrefixedLogDrain.instance);
+						if(node is { }){
+							lock(myw){
+								jsonSerializer.Serialize(myw, node);
+							}
+						}
+					}
+				});
+				thread.Name = "Training thread #" + z;
+				thread.IsBackground = true;
+				thrlist[z] = thread;
+				thread.Start();
 			}
+			foreach (Thread thr in thrlist)
+			{
+				thr.Join();
+			}
+			jsonWriter.WriteEndArray();
+			jsonWriter.Flush();
+
 
 		}
 		private static IEnumerable<State> EnumerateStates(ushort[][] data, FastRNG_State fastRNG)
@@ -198,6 +236,21 @@ namespace TreeFormer.Train
 					}
 					step = 0;
 				}
+			}
+		}
+		private static IEnumerable<State> EnumerateStates2(ushort[][] data, FastRNG_State fastRNG)
+		{
+			for (int z = 0, stop2 = data.Length; z < stop2; ++z)
+			{
+				fastRNG = fastRNG.Step();
+				if(fastRNG.v1.AsUInt64()[0] % dataStride == 0){
+					ushort[] state = data[z];
+					for (int i = state[0], stop = state.Length - 2; i < stop; ++i)
+					{
+						yield return new State(((ReadOnlyMemory<ushort>)state).Slice(1, i), state[i + 2], 0);
+					}
+				}
+				
 			}
 		}
 		private static IEnumerable<State> EnumerateStates(ushort[][] data)

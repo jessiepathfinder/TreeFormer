@@ -80,7 +80,7 @@ namespace TreeFormer
 			int len = state.prevs.Length;
 			
 			
-			bool lbm = dynamic_lookback; //NORMAL/ALTERNATE lookback mode
+			bool lbm = dynamic_lookback; //dynamic/static lookback mode
 			ReadOnlySpan<ushort> ros = state.prevs.Span;
 			ushort comp = compare;
 			if (lbm){
@@ -94,7 +94,7 @@ namespace TreeFormer
 				return false;
 			}
 			int total_lookback = lookback;
-			if(relative_lookback){
+			if(relative_lookback){ //Static relative lookback
 				total_lookback += state.lookback;
 				if (total_lookback < 0)
 				{

@@ -29,10 +29,21 @@ namespace TreeFormer
 			Console.WriteLine(str);
 		}
 	}
+	public sealed class ThreadPrefixedLogDrain : ILogDrain
+	{
+		private ThreadPrefixedLogDrain() { }
+		public static readonly ThreadPrefixedLogDrain instance = new ThreadPrefixedLogDrain();
+		[ThreadStatic]
+		public static string? threadPrefix;
+		public void Write(string str)
+		{
+			Console.WriteLine((threadPrefix ?? Thread.CurrentThread.Name) + ": " + str);
+		}
+	}
 	public interface ILogDrain{
 		public void Write(string str);
 	}
-	public sealed class StateComparer : IEqualityComparer<State>{
+	public sealed class StateComparer : IEqualityComparer<State>, IComparer<State>{
 		private readonly Vector128<byte> key;
 		public StateComparer()
 		{
@@ -42,6 +53,11 @@ namespace TreeFormer
 		public StateComparer(Vector128<byte> key)
 		{
 			this.key = key;
+		}
+
+		public int Compare(State x, State y)
+		{
+			return GetHashCode64(x).CompareTo(GetHashCode64(y));
 		}
 
 		public bool Equals(State x, State y)

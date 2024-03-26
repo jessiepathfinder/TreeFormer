@@ -1,7 +1,10 @@
 ﻿using Newtonsoft.Json;
 using System.Collections.Generic;
 using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using TreeFormer;
+using JsonSerializer = Newtonsoft.Json.JsonSerializer;
 
 namespace Treeformer.Chatbot
 {
@@ -17,16 +20,23 @@ namespace Treeformer.Chatbot
 				this.probability = probability;
 			}
 		}
-		private static TokenProbability[] GetTopK(IReadOnlyDictionary<string, double> keyValuePairs){
-			int len = keyValuePairs.Count;
-			int i = 0;
+		private static TokenProbability[] GetTopK(double[] doubles){
+			int len = doubles.Length;
 			TokenProbability[] tokenProbabilities = new TokenProbability[len];
-			foreach (KeyValuePair<string, double> keyValuePair in keyValuePairs)
-			{
-				tokenProbabilities[i++] = new TokenProbability(Convert.ToUInt16(keyValuePair.Key), keyValuePair.Value);
+			for(int i = 0; i < len; ++i){
+				tokenProbabilities[i] = new TokenProbability((ushort)i,doubles[i]);
 			}
 			Array.Sort(tokenProbabilities, TopKComparer.instance);
 			return tokenProbabilities;
+		}
+		private static IReadOnlyDictionary<ushort, double> GetTopK2(IReadOnlyDictionary<string, double> keyValuePairs)
+		{
+			Dictionary<ushort, double> mydict = new Dictionary<ushort, double>(keyValuePairs.Count);
+			foreach (KeyValuePair<string, double> keyValuePair in keyValuePairs)
+			{
+				mydict.Add(Convert.ToUInt16(keyValuePair.Key), keyValuePair.Value);
+			}
+			return mydict;
 		}
 		private sealed class TopKComparer : IComparer<TokenProbability>
 		{
@@ -82,38 +92,61 @@ namespace Treeformer.Chatbot
 			{
 				strings[keyValuePair.Value + magicTokenClasses] = keyValuePair.Key;
 			}
-			Node root = JsonConvert.DeserializeObject<Node>(File.ReadAllText(datadir + model + ".model"),new JsonSerializerSettings(){ MaxDepth=65536});
 
-			Console.WriteLine("Preparing tree for inference...");
-			Dictionary<Node, TokenProbability[]> truedict = new Dictionary<Node, TokenProbability[]>(ReferenceEqualityComparer.Instance);
-			Dictionary<Node, TokenProbability[]> falsedict = new Dictionary<Node, TokenProbability[]>(ReferenceEqualityComparer.Instance);
+			Console.WriteLine("Opening model file...");
+			using StreamReader streamReader = new StreamReader(new FileStream(datadir + model + ".model", FileMode.Open, FileAccess.Read, FileShare.Read, 16777216, FileOptions.SequentialScan), Encoding.UTF8, false, -1, false);
 
-			IEnumerable<Node> flattened = Misc.Flatten(root);
-			Misc.FixTree(flattened);
-			foreach(Node node in flattened){
-				Dictionary<string, double> cp = node.classProbs_true;
-				if (cp is { }){
-					truedict.Add(node, GetTopK(cp));
-					falsedict.Add(node, GetTopK(node.classProbs_false));
-					node.classProbs_true = null;
-					node.classProbs_false = null;
-				}
-			}
+
+			JsonSerializer jsonSerializer = new JsonSerializer();
+			jsonSerializer.MaxDepth = int.MaxValue;
+			jsonSerializer.MissingMemberHandling = MissingMemberHandling.Ignore;
+
+
+
 
 			ushort[] buffer = new ushort[maxContextSize];
 			while(true){
 				Console.Write("User: ");
 				int x = Misc.Tokenize(optidict, buffer, Console.ReadLine(), maxlen, magicTokenClasses);
 				buffer[x++] = 0; //[START_GPT]
-				while(x<maxContextSize){
+				Console.Write("Treeformer GPT:");
+				while (x<maxContextSize){
 					State s = new State(((ReadOnlyMemory<ushort>)buffer).Slice(0, x), 0, 0);
-					Node n = Trainer.Execute(root, ref s, out bool m);
-					TokenProbability[] d = (m ? truedict : falsedict)[n];
+					double[] doubles = new double[tokenclasses];
 
-					double rng = (RandomNumberGenerator.GetInt32(0, 16777216)/ 16777216.0) * 0.05;
+					ulong ctr = 0;
+					using(JsonReader jsonReader = new JsonTextReader(streamReader)){
+						jsonReader.CloseInput = false;
+						while (jsonReader.Read()){
+							JsonToken jsonTokenType = jsonReader.TokenType;
+							if (jsonTokenType == JsonToken.EndArray)
+							{
+								break;
+							}
+							if(jsonTokenType == JsonToken.StartArray) {
+								continue;
+							}
+							++ctr;
+							State s2 = s;
+							Node node = Trainer.Execute(jsonSerializer.Deserialize<Node>(jsonReader), ref s2, out bool mode);
+							foreach(KeyValuePair<string, double> keyValuePair in (mode ? node.classProbs_true : node.classProbs_false)){
+								doubles[Convert.ToInt32(keyValuePair.Key)] += keyValuePair.Value;
+							}
+						}
+						
+						
+					}
+					streamReader.BaseStream.Position = 0;
+					streamReader.DiscardBufferedData();
+
+					
+
+					double rng = (RandomNumberGenerator.GetInt32(0, 16777216)/ 16777216.0) * (ctr * 0.2);
 					ushort b2 = 1;
-					for (int i = 0, stop = d.Length; i < stop & rng > 0; ++i ){
-						TokenProbability tokenProbability = d[i];
+
+					TokenProbability[] tokenProbabilities = GetTopK(doubles);
+					for (int i = 0, stop = tokenProbabilities.Length; i < stop & rng > 0; ++i ){
+						TokenProbability tokenProbability = tokenProbabilities[i];
 						b2 = tokenProbability.token;
 						rng -= tokenProbability.probability;
 					}
