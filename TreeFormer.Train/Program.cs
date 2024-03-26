@@ -16,8 +16,8 @@ namespace TreeFormer.Train
 		private const int magicTokenClasses = 2;
 		private const int minimumInputTokens = 3;
 		private const int maxContextSize = 2048;
-		private const ulong dataStride = 1024;
-		private const int ensembleSize = 128;
+		private const ulong dataStride = 256;
+		private const int ensembleSize = 32;
 		private static void Main(string[] args)
 		{
 			string datadir = args[0];
@@ -195,7 +195,7 @@ namespace TreeFormer.Train
 						--i;
 
 						ThreadPrefixedLogDrain.threadPrefix = "Tree #" + i + " training thread";
-						Node? node = Trainer.TrainLegacy(EnumerateStates2(mytkz, FastRNG_State.GetRandom()), EnumerateStates(mytkz), 3, 1, 256, 256, 128, 0, 1048576, 65536, 32, ThreadPrefixedLogDrain.instance);
+						Node? node = Trainer.TrainLegacy(EnumerateStates2(mytkz, FastRNG_State.GetRandom()), EnumerateStates(mytkz), 3, 1, 256, 4096, 128, 8, 1048576, 65536, 32, 0.002, ThreadPrefixedLogDrain.instance);
 						if(node is { }){
 							lock(myw){
 								jsonSerializer.Serialize(myw, node);

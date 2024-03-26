@@ -115,66 +115,8 @@ namespace TreeFormer
 				return long.Sign(Math.Abs(basedist - (long)x.Value[0]) - Math.Abs(basedist - (long)y.Value[0]));
 			}
 		}
-		private sealed class Microlist : IEnumerable<State>{
-			private readonly Microlist? prev;
-			private readonly State state;
-
-			public Microlist(Microlist? prev, State state)
-			{
-				this.prev = prev;
-				this.state = state;
-			}
-			private sealed class MicrolistEnumerator : IEnumerator<State>
-			{
-				private readonly Microlist? start;
-				private Microlist? current;
-
-				public MicrolistEnumerator(Microlist? start)
-				{
-					this.start = start;
-					current = start;
-				}
-
-				public State Current => current.state;
-
-				object IEnumerator.Current => current.state;
-
-				public void Dispose()
-				{
-					
-				}
-
-				public bool MoveNext()
-				{
-					Microlist? temp = current;
-					if(temp is null){
-						return false;
-					}
-					temp = temp.prev;
-					current = temp;
-					return temp is { };
-				}
-
-				public void Reset()
-				{
-					current = start;
-				}
-			}
-
-			public IEnumerator<State> GetEnumerator()
-			{
-				return new MicrolistEnumerator(new Microlist(this, default));
-			}
-
-			IEnumerator IEnumerable.GetEnumerator()
-			{
-				return GetEnumerator();
-			}
-		}
-		private static double ComputeEntropy2(double v){
-			return v * Math.Log(v);
-		}
-		public static (Node? node, double information_gain) FindOptimalNode(IEnumerable<State> states, int static_lookback_limit, int relative_lookback_limit, int minimum_split_treshold, int static_optimal_search_max_iterations, int dynamic_optimal_search_max_iterations, int static_lookback, bool allowDynamicLookback, int stochastic_discover_limit, int stochastic_search_limit)
+		
+		public static (Node? node, double information_gain) FindOptimalNode(IEnumerable<State> states, int static_lookback_limit, int relative_lookback_limit, int minimum_split_treshold, int static_optimal_search_max_iterations, int dynamic_optimal_search_max_iterations, int static_lookback, bool allowDynamicLookback, int stochastic_discover_limit, int stochastic_search_limit, double min_information_gain)
 		{
 			State[] statesArr = states.ToArray();
 			int ctr = statesArr.Length;
@@ -212,7 +154,7 @@ namespace TreeFormer
 			int nodecount = keyValuePairs.Count;
 			StaticDistanceComparer staticDistanceComparer = new StaticDistanceComparer(stochastic_search_limit / 2);
 			Node? bestNode = null;
-			double highscore = 0;
+			double highscore = min_information_gain;
 			if (dynamicKeyValuePairs is { })
 			{
 				int z1 = 0;
@@ -323,7 +265,7 @@ namespace TreeFormer
 
 			}
 			
-			return (bestNode,highscore);
+			return (bestNode,bestNode is null ? 0 : highscore);
 			
 		}
 		public static (bool result, State state) Eval(ReadOnlySpan<(Node node, bool mode)> trace, State state){
@@ -436,10 +378,10 @@ namespace TreeFormer
 			return root;
 		}
 		*/
-		public static Node? TrainLegacy(IEnumerable<State> train_dataset, IEnumerable<State> eval_dataset, int static_lookback_limit, int relative_lookback_limit, int static_optimal_search_max_iterations, int minimum_split_treshold, int dynamic_optimal_search_max_iterations, int minDynamicLookbackDepth, int stochastic_discover_limit, int stochastic_search_limit, int max_depth, ILogDrain logDrain)
+		public static Node? TrainLegacy(IEnumerable<State> train_dataset, IEnumerable<State> eval_dataset, int static_lookback_limit, int relative_lookback_limit, int static_optimal_search_max_iterations, int minimum_split_treshold, int dynamic_optimal_search_max_iterations, int minDynamicLookbackDepth, int stochastic_discover_limit, int stochastic_search_limit, int max_depth, double min_information_gain, ILogDrain logDrain)
 		{
 			logDrain.Write("Finding bootstrap split...");
-			(Node? root, double ig) = FindOptimalNode(train_dataset, static_lookback_limit, relative_lookback_limit, minimum_split_treshold, static_optimal_search_max_iterations, dynamic_optimal_search_max_iterations, 0, minDynamicLookbackDepth == 0, stochastic_discover_limit, stochastic_search_limit);
+			(Node? root, double ig) = FindOptimalNode(train_dataset, static_lookback_limit, relative_lookback_limit, minimum_split_treshold, static_optimal_search_max_iterations, dynamic_optimal_search_max_iterations, 0, minDynamicLookbackDepth == 0, stochastic_discover_limit, stochastic_search_limit, min_information_gain);
 			if (root is null)
 			{
 				logDrain.Write("Not enough data to train model!");
@@ -458,7 +400,7 @@ namespace TreeFormer
 				bool can_expand = depth < max_depth;
 				bool allowDynamicLookbacks = depth > minDynamicLookbackDepth;
 				Array.Reverse(nodes);
-				(Node? temp, ig) = FindOptimalNode(MultiEval(nodes, train_dataset), static_lookback_limit, relative_lookback_limit, minimum_split_treshold, static_optimal_search_max_iterations, dynamic_optimal_search_max_iterations, ComputeStaticLookback(nodes), allowDynamicLookbacks, stochastic_discover_limit, stochastic_search_limit);
+				(Node? temp, ig) = FindOptimalNode(MultiEval(nodes, train_dataset), static_lookback_limit, relative_lookback_limit, minimum_split_treshold, static_optimal_search_max_iterations, dynamic_optimal_search_max_iterations, ComputeStaticLookback(nodes), allowDynamicLookbacks, stochastic_discover_limit, stochastic_search_limit, min_information_gain);
 				if (temp is { })
 				{
 					logDrain.Write("Added new node! Information gain: " + ig);
@@ -470,7 +412,7 @@ namespace TreeFormer
 					}
 				}
 				nodes[nodes.Length - 1] = (node, true);
-				(temp, ig) = FindOptimalNode(MultiEval(nodes, train_dataset), static_lookback_limit, relative_lookback_limit, minimum_split_treshold, static_optimal_search_max_iterations, dynamic_optimal_search_max_iterations, ComputeStaticLookback(nodes), allowDynamicLookbacks, stochastic_discover_limit, stochastic_search_limit);
+				(temp, ig) = FindOptimalNode(MultiEval(nodes, train_dataset), static_lookback_limit, relative_lookback_limit, minimum_split_treshold, static_optimal_search_max_iterations, dynamic_optimal_search_max_iterations, ComputeStaticLookback(nodes), allowDynamicLookbacks, stochastic_discover_limit, stochastic_search_limit, min_information_gain);
 				if (temp is { })
 				{
 					logDrain.Write("Added new node! Information gain: " + ig);

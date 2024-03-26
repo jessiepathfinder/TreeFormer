@@ -141,7 +141,7 @@ namespace Treeformer.Chatbot
 
 					
 
-					double rng = (RandomNumberGenerator.GetInt32(0, 16777216)/ 16777216.0) * (ctr * 0.2);
+					double rng = (RandomNumberGenerator.GetInt32(0, 16777216)/ 16777216.0) * (ctr * 0.1);
 					ushort b2 = 1;
 
 					TokenProbability[] tokenProbabilities = GetTopK(doubles);
