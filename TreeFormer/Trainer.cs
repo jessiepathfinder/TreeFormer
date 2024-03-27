@@ -152,7 +152,7 @@ namespace TreeFormer
 			double entropy = ComputeEntropyInternal(keyValuePairs1.Values, dctr);
 
 			int nodecount = keyValuePairs.Count;
-			StaticDistanceComparer staticDistanceComparer = new StaticDistanceComparer(stochastic_search_limit / 2);
+			StaticDistanceComparer staticDistanceComparer = new StaticDistanceComparer(stochastic_discover_limit / 2);
 			Node? bestNode = null;
 			double highscore = min_information_gain;
 			if (dynamicKeyValuePairs is { })
@@ -429,19 +429,15 @@ namespace TreeFormer
 
 
 			logDrain.Write("Computing class probabilities (Step 1)...");
+			Dictionary<Node, NodeCountState> dict = new Dictionary<Node, NodeCountState>(ReferenceEqualityComparer.Instance);
 			foreach (State state in eval_dataset)
 			{
 				State s = state;
-				Node node = Execute(root, ref s, out bool mode);
-				NodeCountState s2;
-				if (node.extraData.TryGetValue(keyobj, out object obj))
-				{
-					s2 = (NodeCountState)obj;
-				}
-				else
+				Node n = Execute(root, s, out bool mode);
+				if (!dict.TryGetValue(n, out NodeCountState s2))
 				{
 					s2 = new NodeCountState();
-					node.extraData.Add(keyobj, s2);
+					dict.Add(n, s2);
 				}
 
 
@@ -462,9 +458,8 @@ namespace TreeFormer
 			logDrain.Write("Computing class probabilities (Step 2)...");
 			foreach (Node node in Misc.Flatten(root))
 			{
-				if (node.extraData.Remove(keyobj, out object obj))
+				if (dict.TryGetValue(node, out NodeCountState s2))
 				{
-					NodeCountState s2 = (NodeCountState)obj;
 					node.classProbs_false = ComputeClassProbabilitiesInternal(s2.false_ctr, s2.total_false_ctr);
 					node.classProbs_true = ComputeClassProbabilitiesInternal(s2.true_ctr, s2.total_true_ctr);
 
